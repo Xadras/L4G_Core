@@ -1531,6 +1531,7 @@ class LOOKING4GROUP_EXPORT Player : public Unit
         template <class T> T ApplySpellMod(uint32 spellId, SpellModOp op, T &basevalue, Spell const* spell = NULL);
         void RemoveSpellMods(Spell const* spell);
         void RestoreSpellMods(Spell const* spell);
+        void ResetSpellModsDueToCanceledSpell(Spell const* spell);
 
         CooldownMgr& GetCooldownMgr() { return m_CooldownMgr; }
 
@@ -1551,7 +1552,7 @@ class LOOKING4GROUP_EXPORT Player : public Unit
         }
         void AddSpellCooldown(uint32 spell_id, uint32 itemid, time_t end_time);
         void SendCooldownEvent(SpellEntry const *spellInfo);
-        void ProhibitSpellSchool(SpellSchoolMask idSchoolMask, uint32 unTimeMs);
+        void LockSpellSchool(SpellSchoolMask idSchoolMask, uint32 unTimeMs) override;
         void RemoveSpellCooldown(uint32 spell_id, bool update = false);
         void RemoveArenaSpellCooldowns();
         void RemoveAllSpellCooldown();
@@ -1908,14 +1909,20 @@ class LOOKING4GROUP_EXPORT Player : public Unit
         void SendNotifyLootMoneyRemoved();
 
         uint8 GetValidForPush();
-	 void PushSixty();
-     void Push();
-	 void EquipForPush(uint16 items[]);
-     void EquipForPushSixty(uint16 items[]);
-	 void FinishPush();
-     void FinishPushSixty();
-	 void PvpPush(uint16 items[]); //Funktionsdeklaration für S0,5
-	 void AddItem(uint32 itemID, uint32 Count);
+        void PushSixty();
+        void Push();
+        void EquipForPush(uint16 items[]);
+        void EquipForPushSixty(uint16 items[]);
+        void FinishPush();
+        void FinishPushSixty();
+        void PvpPush(uint16 items[]);
+        void AddItem(uint32 itemID, uint32 Count);
+
+        /* Addon Helper functions */
+        void SendAddonMessage(std::string& text, char* prefix);
+        WorldPacket CreateAddonMessage(std::string& text, char* prefix);
+        WorldPacket BuildGladdyUpdate();
+        void SendGladdyNotification();
 
         /*********************************************************/
         /***               BATTLEGROUND SYSTEM                 ***/

@@ -772,8 +772,16 @@ bool Creature::Create(uint32 guidlow, Map *map, uint32 Entry, uint32 team, float
                 break;
         }
         LoadCreaturesAddon();
+
         if (GetCreatureInfo()->flags_extra & CREATURE_FLAG_EXTRA_HASTE_IMMUNE)
             ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_HASTE_SPELLS, true);
+
+        if (GetCreatureInfo()->flags_extra & CREATURE_FLAG_EXTRA_NORMAL_MOVEMENT_IMMUNE)
+            ApplySpellImmune(1, IMMUNITY_STATE, SPELL_AURA_USE_NORMAL_MOVEMENT_SPEED, true);
+
+        //Ugly Hackfix to prevent cripple (spell of wl pet) on bosses
+        if (isWorldBoss())
+            ApplySpellImmune(0, IMMUNITY_ID, 20812, true);
     }
     return bResult;
 }
@@ -2415,6 +2423,11 @@ void Creature::_AddCreatureSpellCooldown(uint32 spell_id, time_t end_time)
     m_CreatureSpellCooldowns[spell_id] = end_time;
 }
 
+void Creature::_AddCreatureSchoolLock(uint32 idSchoolMask, time_t end_time)
+{
+    m_CreatureSchoolLock[idSchoolMask] = end_time;
+}
+
 void Creature::_AddCreatureCategoryCooldown(uint32 category, time_t end_time)
 {
     m_CreatureCategoryCooldowns[category] = end_time;
@@ -2456,10 +2469,24 @@ bool Creature::HasCategoryCooldown(uint32 spell_id) const
     return(itr != m_CreatureCategoryCooldowns.end() && itr->second > time(NULL));
 }
 
+uint32 Creature::GetCreatureSpellCooldownDelay(uint32 spellId) const
+{
+    CreatureSpellCooldowns::const_iterator itr = m_CreatureSpellCooldowns.find(spellId);
+    time_t t = time(nullptr);
+    return uint32(itr != m_CreatureSpellCooldowns.end() && itr->second > t ? itr->second - t : 0);
+}
+
 bool Creature::HasSpellCooldown(uint32 spell_id) const
 {
     CreatureSpellCooldowns::const_iterator itr = m_CreatureSpellCooldowns.find(spell_id);
     return (itr != m_CreatureSpellCooldowns.end() && itr->second > time(NULL)) || HasCategoryCooldown(spell_id);
+}
+
+bool Creature::HasSchoolLock(uint32 idSchoolMask)
+{
+    CreatureSpellCooldowns::const_iterator itr = m_CreatureSchoolLock.find(idSchoolMask);
+    time_t t = time(nullptr);
+    return uint32(itr != m_CreatureSchoolLock.end() && itr->second > t ? itr->second - t : 0);
 }
 
 bool Creature::IsInEvadeMode() const
@@ -2823,4 +2850,15 @@ bool RestoreReactState::Execute(uint64 e_time, uint32 p_time)
     _owner.clearUnitState(UNIT_STAT_IGNORE_ATTACKERS);
     _owner.SetReactState(_oldState);
     return true;
+}
+
+void Creature::LockSpellSchool(SpellSchoolMask idSchoolMask, uint32 unTimeMs)
+{
+    // Take current time
+    time_t curTime = time(NULL);
+    uint8 i = 0;
+    
+    // Add a lock to spell school used that was being casted
+    _AddCreatureSchoolLock(idSchoolMask, curTime + unTimeMs / 1000 );
+
 }

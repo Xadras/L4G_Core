@@ -1411,6 +1411,10 @@ void Unit::CalculateSpellDamageTaken(SpellDamageLog *damageInfo, int32 damage, S
     if (!pVictim || !pVictim->isAlive())
         return;
 
+    // Make Target get up if hit by spell
+    if (!pVictim->IsStandState())
+        pVictim->SetStandState(PLAYER_STATE_NONE);
+
     if (damageInfo->schoolMask & SPELL_SCHOOL_MASK_NORMAL  && (spellInfo->AttributesCu & SPELL_ATTR_CU_IGNORE_ARMOR) == 0)
         damage = CalcArmorReducedDamage(pVictim, damage);
 
@@ -1517,6 +1521,7 @@ void Unit::CalculateSpellDamageTaken(SpellDamageLog *damageInfo, int32 damage, S
     }
     else
         damage = 0;
+
     damageInfo->damage = damage;
 }
 
@@ -2301,6 +2306,11 @@ void Unit::RollMeleeHit(MeleeDamageLog *damageInfo, int32 crit_chance, int32 mis
         damageInfo->procEx |= PROC_EX_EVADE;
         damageInfo->damage = 0;
         damageInfo->rageDamage = 0;
+        return;
+    }
+
+    // Check if target is a totem, if so never miss/dodge/parry
+    if ( pVictim->GetTypeId() == TYPEID_UNIT && ((Creature*)pVictim)->isTotem()) {
         return;
     }
 
@@ -3848,6 +3858,30 @@ bool Unit::AddAura(Aura *Aur)
     SpellEntry const* aurSpellInfo = Aur->GetSpellProto();
 
     spellEffectPair spair = spellEffectPair(Aur->GetId(), Aur->GetEffIndex());
+
+    // Dont let ancestral fortitude stack with inspiration
+    if (aurSpellInfo->Id == 16177 || aurSpellInfo->Id == 16236 || aurSpellInfo->Id == 16237)
+    {
+        // If already has inspiration, remove it
+        if (HasAura(14893))
+            RemoveAura(14893,0);
+        if (HasAura(15357))
+            RemoveAura(15357,0);
+        if (HasAura(15359))
+            RemoveAura(15359,0);
+    }
+
+    // Dont let inspiration stack with ancestral fortitude
+    if (aurSpellInfo->Id == 14893 || aurSpellInfo->Id == 15357 || aurSpellInfo->Id == 15359) 
+    {
+        // If already has ancestral fortitude, remove it
+        if (HasAura(16177))
+            RemoveAura(16177,0);
+        if (HasAura(16236))
+            RemoveAura(16236,0);
+        if (HasAura(16237))
+            RemoveAura(16237,0);
+    }
 
     bool stackModified = false;
     // passive and persistent auras can stack with themselves any number of times (with NPCs windfury exception)
@@ -8287,17 +8321,17 @@ uint32 Unit::SpellDamageBonus(Unit *pVictim, SpellEntry const *spellProto, uint3
             {
                 CastingTime = 5400;
             }
-            // Corruption 93%
+            // Corruption 93.6%
             else if ((spellProto->SpellFamilyFlags & 0x2LL) && spellProto->SpellIconID == 313)
             {
-                DotFactor = 0.93f;
+                DotFactor = 0.936f;
             }
             break;
         case SPELLFAMILY_PALADIN:
-            // Consecration - 95% of Holy Damage
+            // Consecration - 95.24f% of Holy Damage
             if ((spellProto->SpellFamilyFlags & 0x20LL) && spellProto->SpellIconID == 51)
             {
-                DotFactor = 0.95f;
+                DotFactor = 0.9524f;
                 CastingTime = 3500;
             }
             // Seal of Righteousness - 10.2%/9.8% (based on weapon type) of Holy Damage, multiplied by weapon speed
@@ -8377,10 +8411,10 @@ uint32 Unit::SpellDamageBonus(Unit *pVictim, SpellEntry const *spellProto, uint3
             {
                 CastingTime = 350;
             }
-            // Holy Nova - 14%
+            // Holy Nova - 16%
             else if ((spellProto->SpellFamilyFlags & 0x400000LL) && spellProto->SpellIconID == 1874)
             {
-                CastingTime = 500;
+                CastingTime = 560;
             }
             // Shadow Word: Death back damage - 0%
             else if (spellProto->Id == 32409)
@@ -8461,6 +8495,19 @@ uint32 Unit::SpellDamageBonus(Unit *pVictim, SpellEntry const *spellProto, uint3
 
     if (GetObjectGuid().IsCreature())
         tmpDamage *= ((Creature*)this)->GetSpellDamageMod(((Creature*)this)->GetCreatureInfo()->rank);
+
+    // AoE Spell or Spell Radius not 0 and Target must be a pet!
+    if (((SpellMgr::IsAreaOfEffectSpell(spellProto)) || spellProto->EffectRadiusIndex[0] != 0) && ((Creature*)pVictim)->isPet()) {
+        // Pet has 25% damage avoidance buff
+        if (pVictim->HasAura(35694)) {
+            tmpDamage *= 0.75f;
+        }
+
+        // Pet has 50% damage avoidance buff or Felguard 50% avoidance
+        if (pVictim->HasAura(35698) || pVictim->HasAura(32233)) {
+            tmpDamage *= 0.5f;
+        }
+    }
 
     return tmpDamage > 0 ? uint32(tmpDamage) : 0;
 }

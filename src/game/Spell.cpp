@@ -93,9 +93,7 @@ void SpellCastTargets::setUnitTarget(Unit *target)
         return;
 
     m_unitTarget = target;
-    
-    if (target && target->GetGUID())
-        m_unitTargetGUID = target->GetGUID();
+    m_unitTargetGUID = target->GetObjectGuid();
 
     m_targetMask |= TARGET_FLAG_UNIT;
 }
@@ -1166,6 +1164,23 @@ void Spell::DoSpellHitOnUnit(Unit *unit, const uint32 effectMask)
                 m_damage = 0;
                 return;
             }
+
+            // Make unit stand on spell hit
+            if (!unit->IsStandState() && !unit->hasUnitState(UNIT_STAT_STUNNED))
+                    unit->SetStandState(UNIT_STAND_STATE_STAND);
+
+            // Fearie fire break stealth
+            if(GetSpellInfo()->Id == 770 || GetSpellInfo()->Id == 778 || GetSpellInfo()->Id == 9749 || GetSpellInfo()->Id == 9907) {
+                unit->RemoveAuraTypeByCaster(SPELL_AURA_MOD_STEALTH, unit->GetGUID());
+            }
+
+            // DOT break stealth on application
+            for (int j=0; j<3; j++) {
+                if (GetSpellInfo()->EffectApplyAuraName[j] == SPELL_AURA_PERIODIC_DAMAGE) {
+                    unit->RemoveAuraTypeByCaster(SPELL_AURA_MOD_STEALTH, unit->GetGUID());
+                }
+            }
+
             unit->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_HITBYSPELL);
             if (GetSpellInfo()->AttributesCu & SPELL_ATTR_CU_AURA_CC)
                 unit->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_CC);
@@ -2236,6 +2251,7 @@ void Spell::SetTargetMap(uint32 i, uint32 cur)
                     break;
                 case 41376:     // Spite
                 case 46771:     // Flame Sear
+                case 43550:     // MC Hexlord
                     unitList.remove_if(Looking4group::ObjectGUIDCheck(m_caster->getVictimGUID()));
                     break;
                 case 45248:     // Shadow Blades
@@ -2463,6 +2479,10 @@ void Spell::cancel()
 
 void Spell::cast(bool skipCheck)
 {
+    // send trinket message to Gladdy
+    if (m_spellInfo->Id == 42292)
+        m_caster->ToPlayer()->SendGladdyNotification();
+
     // what the fuck is done here? o.O
     SpellEntry const* spellInfo = sSpellStore.LookupEntry(GetSpellInfo()->Id);
     if (!spellInfo)
@@ -3091,10 +3111,10 @@ void Spell::finish(bool ok)
 
     if (Player* modOwner = m_caster->GetSpellModOwner())
     {
-        if (ok || m_spellState != SPELL_STATE_PREPARING || m_spellState != SPELL_STATE_DELAYED)
+        if (ok || m_spellState != SPELL_STATE_PREPARING)
             modOwner->RemoveSpellMods(this);
         else
-            modOwner->RestoreSpellMods(this);
+            modOwner->ResetSpellModsDueToCanceledSpell(this);
     }
 
     m_spellState = SPELL_STATE_FINISHED;
@@ -3682,7 +3702,18 @@ void Spell::TakePower()
                 }
 
         if (hit && SpellMgr::NeedsComboPoints(GetSpellInfo()))
+        {
+            // Not drop combopoints if any miss exist
+            bool needDrop = true;
+            for(std::list<TargetInfo>::iterator ihit= m_UniqueTargetInfo.begin();ihit != m_UniqueTargetInfo.end();++ihit)
+            if (ihit->missCondition != SPELL_MISS_NONE)
+            {
+                needDrop = false;
+                break;
+                    }
+            if (needDrop)
             ((Player*)m_caster)->ClearComboPoints();
+        }
     }
 
     if (!m_powerCost)
@@ -4941,6 +4972,9 @@ SpellCastResult Spell::CheckRange(bool strict)
     float max_range = SpellMgr::GetSpellMaxRange(srange); // + range_mod;
     float min_range = SpellMgr::GetSpellMinRange(srange);
     uint32 range_type = SpellMgr::GetSpellRangeType(srange);
+
+    // Adding 15% Range Buffer
+    max_range *= 1.15f;
 
     if (Player* modOwner = m_caster->GetSpellModOwner())
         modOwner->ApplySpellMod(GetSpellInfo()->Id, SPELLMOD_RANGE, max_range, this);

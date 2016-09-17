@@ -481,6 +481,9 @@ SpellSpecific SpellMgr::GetSpellSpecific(uint32 spellId)
         {
             if (spellInfo->SpellFamilyFlags & 0x00008000010000LL)
                 return SPELL_POSITIVE_SHOUT;
+            // Sunder Armor (vs Expose Armor)
+            if (spellInfo->SpellFamilyFlags & 0x00000000004000LL)
+                return SPELL_ARMOR_REDUCE;
 
             break;
         }
@@ -533,7 +536,13 @@ SpellSpecific SpellMgr::GetSpellSpecific(uint32 spellId)
 
             break;
         }
-
+        case SPELLFAMILY_ROGUE:
+        {
+            // Expose Armor (vs Sunder Armor)
+            if (spellInfo->SpellFamilyFlags & 0x00000000080000LL)
+                return SPELL_ARMOR_REDUCE;
+            break;
+        }
         case SPELLFAMILY_POTION:
             return sSpellMgr.GetSpellElixirSpecific(spellInfo->Id);
             break;
@@ -610,6 +619,7 @@ bool SpellMgr::IsSingleFromSpellSpecificPerTarget(SpellSpecific spellSpec1, Spel
         case SPELL_FOOD:
         case SPELL_CHARM:
         case SPELL_WARRIOR_ENRAGE:
+        case SPELL_ARMOR_REDUCE:
             return spellSpec1 == spellSpec2;
         case SPELL_BATTLE_ELIXIR:
             return spellSpec2 == SPELL_BATTLE_ELIXIR
@@ -3073,8 +3083,7 @@ void SpellMgr::LoadSpellCustomAttr()
                 break;
             case 5171:
             case 6774:                     // Slice'n'Dice
-                spellInfo->AttributesEx |= SPELL_ATTR_EX_NOT_BREAK_STEALTH;
-                spellInfo->AttributesEx3 |= SPELL_ATTR_EX3_NO_INITIAL_AGGRO; // Do not put caster in combat after use
+        spellInfo->AttributesEx3 |= SPELL_ATTR_EX3_NO_INITIAL_AGGRO;
                 break;
             /* SHAMAN CUSTOM ATTRIBUTES */
             case 2895:                      // Wrath of Air Totem - disallow weird stacking
@@ -3090,6 +3099,13 @@ void SpellMgr::LoadSpellCustomAttr()
                 spellInfo->speed = 0;
                 spellInfo->AttributesEx3 |= SPELL_ATTR_EX3_NO_INITIAL_AGGRO;
                 break;
+        // Spells that should not put you in combat credits by robinsch
+        case 33619: // Reflective Shield
+        case 13810: // Frost Trap
+        case 34919: // Vampiric Touch (Energize)
+        case 15290: // Vampiric Embrace (Healing)
+        spellInfo->AttributesEx3 |= SPELL_ATTR_EX3_NO_INITIAL_AGGRO; // Do not put caster in combat after use
+        break;
             // Triggered spells that should be delayed
             case 32848:                     // Mana Restore
             case 14189:                     // Seal Fate
@@ -3104,6 +3120,9 @@ void SpellMgr::LoadSpellCustomAttr()
                 break;
             /* UNSORTED */
             /* Damage Corrections */
+            case 33627: // Rain of Fire (Pit Commander)
+                spellInfo->EffectBasePoints[0] = urand(48000, 58000); // Sure not correct WoWhead comments saying about 45 - 58k damage per tick
+                break;
             case 16785: // Flamebreak
                 spellInfo->EffectBasePoints[0] = 24;
                 break;
@@ -3127,14 +3146,10 @@ void SpellMgr::LoadSpellCustomAttr()
                break;
             case 15453: // Arcane Explosion 
                 spellInfo->EffectBasePoints[0] = 154; 
-                break;
-            /****************/
+                break;            
             case 40447: // BT: Akama - Soul Channel
                 spellInfo->Effect[0] = 0;
-                break;
-            case 29538:
-                spellInfo->EffectApplyAuraName[0] = 0;
-                break;
+                break;            
             case 24311: // Powerful Healing Ward
                 spellInfo->CastingTimeIndex = 14;
                 break;
@@ -3195,8 +3210,7 @@ void SpellMgr::LoadSpellCustomAttr()
             case 24340: case 26558: case 28884:     // Meteor
             case 36837: case 38903: case 41276:     // Meteor
             case 26789:                             // Shard of the Fallen Star
-            case 31436:                             // Malevolent Cleave
-            case 35181:                             // Dive Bomb
+            case 31436:                             // Malevolent Cleave            
             case 40810: case 43267: case 43268:     // Saber Lash
             case 42384:                             // Brutal Swipe
             case 45150:                             // Meteor Slash
@@ -3362,9 +3376,9 @@ void SpellMgr::LoadSpellCustomAttr()
             case 66:    // Invisibility (fading) - break on casting spell
                 spellInfo->AuraInterruptFlags |= AURA_INTERRUPT_FLAG_CAST;
                 break;
-            case 37363: // set 5y radius instead of 25y
-                spellInfo->EffectRadiusIndex[0] = 8;
-                spellInfo->EffectRadiusIndex[1] = 8;
+            case 37363: // set 8y radius instead of 25y
+                spellInfo->EffectRadiusIndex[0] = 14;
+                spellInfo->EffectRadiusIndex[1] = 14;
                 spellInfo->EffectMiscValue[1] = 50;
                 break;
             case 42835: // set visual only
@@ -3377,13 +3391,18 @@ void SpellMgr::LoadSpellCustomAttr()
             case 46039:
                 spellInfo->AttributesEx2 |= SPELL_ATTR_EX2_IGNORE_LOS;
                 break;
+            case 835:   // Tidal Charm
+            case 13120: // Net-o-Matic
+            case 15712: // Linken's Boomerang
             case 21358: // Aqual Quintessence / Eternal Quintessence
-            case 47977: // Broom Broom
-            case 42679:
-            case 42673:
-            case 42680:
-            case 42681:
-            case 42683:
+            case 30452: // Rocket Boots Engaged (triggered Buff)
+            case 51582: // Rocket Boots Engaged (Boots Spell)
+            case 47977: // Event Broom Mounts without Casttime 
+            case 42679: 
+            case 42673: 
+            case 42680: 
+            case 42681: 
+            case 42683: 
             case 42684:
                 spellInfo->AttributesEx4 |= SPELL_ATTR_EX4_NOT_USABLE_IN_ARENA;
                 break;
@@ -3403,6 +3422,9 @@ void SpellMgr::LoadSpellCustomAttr()
             case 31532: // Repair from Mekgineer event in Steamvault
             case 37936:
                 spellInfo->Attributes &= ~SPELL_ATTR_BREAKABLE_BY_DAMAGE;
+                break;
+            case 30129: // Nightbane: Charred Earth
+                spellInfo->EffectRadiusIndex[0] = 29;    // effect radius from 10 to 6 yd
                 break;
             case 37454: // Chess event: Bite
             case 37453: // Chess event: Smash
@@ -3472,6 +3494,7 @@ void SpellMgr::LoadSpellCustomAttr()
                 spellInfo->EffectImplicitTargetA[1] = TARGET_UNIT_CASTER;
                 spellInfo->EffectImplicitTargetA[2] = TARGET_UNIT_TARGET_ENEMY;
                 break;
+            case 32785: // Infernal Rain
             case 30541: // Magtheridon's Blaze
                 spellInfo->EffectImplicitTargetA[0] = TARGET_UNIT_TARGET_ENEMY;
                 spellInfo->EffectImplicitTargetB[0] = 0;
@@ -3557,8 +3580,8 @@ void SpellMgr::LoadSpellCustomAttr()
             case 32686: //earthsquake doomwalker 
                 spellInfo->AttributesCu |= SPELL_ATTR_CU_IGNORE_ARMOR; 
                 break;
-            case 44032: // Mind Exhaust  Magtheridon
-                spellInfo->DurationIndex = 23;
+            case 44032: // Mind Exhaustion Magtheridon
+                spellInfo->DurationIndex = 25;
             break;
             case 24869: //Halooween food
                 spellInfo->Effect[2] = 6;
@@ -3572,8 +3595,8 @@ void SpellMgr::LoadSpellCustomAttr()
                 spellInfo->EffectRadiusIndex[0] = 18;
             break;
             case 37284:  //scalding water
-                spellInfo->EffectBasePoints[1] = 1000;
-                spellInfo->EffectBasePoints[0] = 1000;
+                spellInfo->EffectBasePoints[1] = 999;
+                spellInfo->EffectBasePoints[0] = 999;
                 spellInfo->AttributesCu |= SPELL_ATTR_CU_NO_SPELL_DMG_COEFF;
             break;
             case 29838: //Second Wind (Rank 2)
@@ -3654,6 +3677,46 @@ void SpellMgr::LoadSpellCustomAttr()
             case 33813: //Hurtful Strike
                 spellInfo->rangeIndex = 137;
                 break;
+            case 33671: // Gruul Shatter Radius Reduction (From 20 to 19 yards)
+                // There was a slight range issue with shatter
+                spellInfo->EffectRadiusIndex[0] = 49;
+                break;
+            case 30567: // Tormet of worgen has 3% chance to proc Torment of the Worgen (Transform)
+                spellInfo->procChance = 3;
+                spellInfo->Effect[0] = 0;
+                spellInfo->EffectTriggerSpell[0] = 0;
+                spellInfo->EffectApplyAuraName[0] = 0;
+                break;
+            case 30731: // Torment of the Worgen (Transform) has 100% chance to proc Worgen's Spite
+                spellInfo->procChance = 100;
+                spellInfo->Effect[0] = 6;
+                spellInfo->EffectTriggerSpell[0] = 30564;
+                spellInfo->EffectApplyAuraName[0] = 42;
+                spellInfo->EffectImplicitTargetA[0] = 1;
+                break;
+            case 30564: // Worgen's Spite has a duration of 1.1 seconds (Will fade once Transform fades)
+                spellInfo->DurationIndex = 555;
+                break;
+            case 38316: //Lady Vashj entangle is not supposed to break on damage
+                spellInfo->Attributes = 0;
+                break;
+            case 38015: //Hydross beam visual
+                spellInfo->Attributes |= SPELL_ATTR_EX_NO_THREAT;
+                spellInfo->AttributesEx3 |= SPELL_ATTR_EX3_NO_INITIAL_AGGRO;
+                break;
+            case 37433: //Lurker spout knockback should not be resistable
+                spellInfo->AttributesEx4 |= SPELL_ATTR_EX4_IGNORE_RESISTANCES;
+            case 38258: //Strider fear should not be breakable by anti fear spells
+                spellInfo->Mechanic = MECHANIC_HORROR;
+                break;
+            case 35181: //Al'ar prenerf divebomb
+                spellInfo->AttributesCu |= SPELL_ATTR_CU_SHARE_DAMAGE;
+                spellInfo->EffectBasePoints[0] = 28499; // Up to 30000 Damage
+                spellInfo->EffectDieSides[0] = 1501;
+                spellInfo->Targets = 64;
+                spellInfo->EffectImplicitTargetA[0] = 16;
+                break;
+
             default:
                 break;
         }
@@ -4390,7 +4453,7 @@ DiminishingGroup SpellMgr::GetDiminishingReturnsGroupForSpell(SpellEntry const* 
             else if (spellproto->Id == 31117)
                 return DIMINISHING_UNSTABLE_AFFLICTION;
             // Enslave deamon
-            else if(spellproto->SpellFamilyFlags & 0x800LL)
+            else if (spellproto->SpellFamilyFlags & 0x800LL)
                 return DIMINISHING_ENSLAVE;
             break;
         }
@@ -4400,8 +4463,11 @@ DiminishingGroup SpellMgr::GetDiminishingReturnsGroupForSpell(SpellEntry const* 
             if (spellproto->SpellFamilyFlags & 0x02000000000LL)
                 return DIMINISHING_BLIND_CYCLONE;
             // Nature's Grasp trigger
-            if (spellproto->SpellFamilyFlags & 0x00000000200LL && spellproto->Attributes == 0x49010000)
+            else if (spellproto->SpellFamilyFlags & 0x00000000200LL && spellproto->Attributes == 0x49010000)
                 return DIMINISHING_CONTROL_ROOT;
+            // Feral Charge Root Effect
+            else if (spellproto->Id == 45334)
+                return DIMINISHING_NONE;    
             break;
         }
         case SPELLFAMILY_WARRIOR:

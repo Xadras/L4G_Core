@@ -71,6 +71,7 @@
 
 #include <cmath>
 #include <cctype>
+#include <iomanip>
 
 #define ZONE_UPDATE_INTERVAL 1000
 
@@ -3560,10 +3561,7 @@ uint32 Player::resetTalentsCost() const
         return 1*GOLD;
     // then 5 gold
     else if (m_resetTalentsCost < 5*GOLD)
-        return 5*GOLD;
-    // After that it increases in increments of 5 gold
-    else if (m_resetTalentsCost < 10*GOLD)
-        return 10*GOLD;
+        return 5*GOLD;    
     else
     {
         uint32 months = (sWorld.GetGameTime() - m_resetTalentsTime)/MONTH;
@@ -3571,16 +3569,16 @@ uint32 Player::resetTalentsCost() const
         {
             // This cost will be reduced by a rate of 5 gold per month
             int32 new_cost = int32(m_resetTalentsCost) - 5*GOLD*months;
-            // to a minimum of 10 gold.
-            return (new_cost < 10*GOLD ? 10*GOLD : new_cost);
+            // to a minimum of 5 gold.
+            return (new_cost < 5*GOLD ? 5*GOLD : new_cost);
         }
         else
         {
             // After that it increases in increments of 5 gold
             int32 new_cost = m_resetTalentsCost + 5*GOLD;
-            // until it hits a cap of 50 gold.
-            if (new_cost > 50*GOLD)
-                new_cost = 50*GOLD;
+            // until it hits a cap of 20 gold.
+            if (new_cost > 20*GOLD)
+                new_cost = 20*GOLD;
             return new_cost;
         }
     }
@@ -5360,72 +5358,54 @@ bool Player::UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step)
     return false;
 }
 
-void Player::UpdateWeaponSkill (WeaponAttackType attType)
+void Player::UpdateWeaponSkill(WeaponAttackType attType)
 {
+    // no skill gain in pvp
+    Unit* pVictim = getVictim();
+    if (pVictim && pVictim->isCharmedOwnedByPlayerOrPlayer())
+        return;
 
-    if (IsInFeralForm(true))
+    if (IsInFeralForm())
         return;                                             // always maximized SKILL_FERAL_COMBAT in fact
 
-    if (m_form == FORM_TREE)
-        return;                                             // use weapon but not skill up
+    uint32 weaponSkillGain = sWorld.getConfig(CONFIG_SKILL_GAIN_WEAPON);
 
-    uint32 weapon_skill_gain = sWorld.getConfig(CONFIG_SKILL_GAIN_WEAPON);
+    Item* pWeapon = GetWeaponForAttack(attType, true);
+    if (pWeapon && pWeapon->GetProto()->SubClass != ITEM_SUBCLASS_WEAPON_FISHING_POLE)
+        UpdateSkill(pWeapon->GetSkill(), weaponSkillGain);
+    else if (!pWeapon && attType == BASE_ATTACK)
+        UpdateSkill(SKILL_UNARMED, weaponSkillGain);
 
-    switch (attType)
-    {
-        case BASE_ATTACK:
-        {
-            Item *tmpitem = GetWeaponForAttack(attType,true);
-
-            if (!tmpitem)
-                UpdateSkill(SKILL_UNARMED,weapon_skill_gain);
-            else if (tmpitem->GetProto()->SubClass != ITEM_SUBCLASS_WEAPON_FISHING_POLE)
-                UpdateSkill(tmpitem->GetSkill(),weapon_skill_gain);
-            break;
-        }
-        case OFF_ATTACK:
-        case RANGED_ATTACK:
-        {
-            Item *tmpitem = GetWeaponForAttack(attType,true);
-            if (tmpitem)
-                UpdateSkill(tmpitem->GetSkill(),weapon_skill_gain);
-            break;
-        }
-    }
     UpdateAllCritPercentages();
 }
 
-void Player::UpdateCombatSkills(Unit *pVictim, WeaponAttackType attType, bool defence) //if defense than pVictim == attacker
+void Player::UpdateCombatSkills(Unit* pVictim, WeaponAttackType attType, bool defence)
 {
-    if (pVictim->isCharmedOwnedByPlayerOrPlayer()) // no skill ups in pvp
-        return;
-
-    uint32 plevel = getLevel();
+    uint32 plevel = getLevel();                             // if defense than pVictim == attacker
+    uint32 greylevel = Looking4group::XP::GetGrayLevel(plevel);
     uint32 moblevel = pVictim->getLevelForTarget(this);
+    if (moblevel < greylevel)
+        return;
 
     if (moblevel > plevel + 5)
         moblevel = plevel + 5;
 
-    float lvldif = 1.5f;
-    if (moblevel >= plevel)
-    {
-        lvldif = moblevel - plevel;
-        if (lvldif < 3)
-            lvldif = 3;
-    }
+    uint32 lvldif = moblevel - greylevel;
+    if (lvldif < 3)
+        lvldif = 3;
 
-    uint32 skilldif = 5 * plevel - (defence ? GetBaseDefenseSkillValue() : GetBaseWeaponSkillValue(attType));
+    int32 skilldif = 5 * plevel - (defence ? GetBaseDefenseSkillValue() : GetBaseWeaponSkillValue(attType));
+
+    // Max skill reached for level.
+    // Can in some cases be less than 0: having max skill and then .level -1 as example.
     if (skilldif <= 0)
         return;
 
-    float chance = (float(3 * lvldif * skilldif) / plevel) * 0.5f;
+    float chance = float(3 * lvldif * skilldif) / plevel;
     if (!defence)
-        chance += 0.02f * GetStat(STAT_INTELLECT);
+        chance *= 0.1f * GetStat(STAT_INTELLECT);
 
-    chance = chance < 1.0f ? 1.0f : chance;                 //minimum chance to increase skill is 1%
-
-    if (!defence)
-        SendCombatStats("Weapon skill update [ skill: %u, chance %f, skilldif: %u ]", pVictim, attType, chance, skilldif);
+    chance = chance < 1.0f ? 1.0f : chance;                 // minimum chance to increase skill is 1%
 
     if (roll_chance_f(chance))
     {
@@ -5434,6 +5414,8 @@ void Player::UpdateCombatSkills(Unit *pVictim, WeaponAttackType attType, bool de
         else
             UpdateWeaponSkill(attType);
     }
+    else
+        return;
 }
 
 void Player::ModifySkillBonus(uint32 skillid,int32 val, bool talent)
@@ -13091,12 +13073,12 @@ void Player::RewardQuest(Quest const *pQuest, uint32 reward, Object* questGiver,
     // Not give XP in case already completed once repeatable quest
     uint32 XP = q_status.m_rewarded ? 0 : uint32(pQuest->XPValue(this)*GetXPRate(RATE_XP_QUEST));
 
-	//SWP QUESTS AUCH FÜR EVENT
-	uint32 SWPQuests[19] = {11525, 11535, 11540, 11524, 11547, 11536, 11542, 11546, 11523, 11548, 11526, 11537, 11533, 11496, 11539, 11543, 11541, 11532, 11545};
-	uint32 actualQuestId;
-	bool validRepeatableQuestforXP;
-	validRepeatableQuestforXP = false;
-	actualQuestId = pQuest->GetQuestId();
+    //SWP QUESTS AUCH FÜR EVENT
+    uint32 SWPQuests[19] = {11525, 11535, 11540, 11524, 11547, 11536, 11542, 11546, 11523, 11548, 11526, 11537, 11533, 11496, 11539, 11543, 11541, 11532, 11545};
+    uint32 actualQuestId;
+    bool validRepeatableQuestforXP;
+    validRepeatableQuestforXP = false;
+    actualQuestId = pQuest->GetQuestId();
 
     uint32 SWPQuests_new[21] = {11488, 11514, 11515, 11516, 11521, 11523, 11525, 11526, 11533, 11536, 11537, 11540, 11541, 11543, 11544, 11546, 11547, 11548, 11549, 11875, 11877};
     for (uint32 i=0; i<21; i++)
@@ -13118,13 +13100,13 @@ void Player::RewardQuest(Quest const *pQuest, uint32 reward, Object* questGiver,
         }
     }
 
-	for (uint32 i=0; i<19; i++)
-	{
-		if (actualQuestId == SWPQuests[i])
-		{
-			validRepeatableQuestforXP = true;
-		}
-	}	
+    for (uint32 i=0; i<19; i++)
+    {
+        if (actualQuestId == SWPQuests[i])
+        {
+            validRepeatableQuestforXP = true;
+        }
+    }    
 
     if (getLevel() < sWorld.getConfig(CONFIG_MAX_PLAYER_LEVEL) && (!StopLevel(GetGUID())))
         GiveXP(XP , NULL);
@@ -16910,11 +16892,11 @@ void Player::_SaveMonthlyQuestStatus()
     static SqlStatementID insertMonthlyDaily;
 
     // we don't need transactions here.
-	SqlStatement stmt = RealmDataDatabase.CreateStatement(deleteMonthlyDailies, "DELETE FROM character_queststatus_monthly WHERE guid = ?");
- 	stmt.PExecute(GetGUIDLow());
- 	
+    SqlStatement stmt = RealmDataDatabase.CreateStatement(deleteMonthlyDailies, "DELETE FROM character_queststatus_monthly WHERE guid = ?");
+    stmt.PExecute(GetGUIDLow());
+    
     for (std::set<uint32>::const_iterator iter = m_monthlyquests.begin(); iter != m_monthlyquests.end(); ++iter)
- 	{
+    {
         uint32 quest_id = *iter;
         stmt = RealmDataDatabase.CreateStatement(insertMonthlyDaily, "INSERT INTO character_queststatus_monthly (guid, quest,time) VALUES (?, ?, ?)");
         stmt.addUInt32(GetGUIDLow());
@@ -17858,6 +17840,31 @@ void Player::RestoreSpellMods(Spell const* spell)
     }
 }
 
+void Player::ResetSpellModsDueToCanceledSpell(Spell const* spell)
+{
+    for (int i = 0; i < MAX_SPELLMOD; ++i)
+    {
+        for (SpellModList::const_iterator itr = m_spellMods[i].begin(); itr != m_spellMods[i].end(); ++itr)
+        {
+            SpellModifier* mod = *itr;
+
+            if (mod->lastAffected != spell)
+                continue;
+
+            mod->lastAffected = nullptr;
+
+            if (mod->charges == -1)
+            {
+                mod->charges = 1;
+                if (m_SpellModRemoveCount > 0)
+                    --m_SpellModRemoveCount;
+            }
+            else if (mod->charges > 0)
+                ++mod->charges;
+        }
+    }
+}
+
 void Player::RemoveSpellMods(Spell const* spell)
 {
     if (!spell || (m_SpellModRemoveCount == 0))
@@ -18159,7 +18166,7 @@ void Player::CleanupAfterTaxiFlight()
     getHostilRefManager().setOnlineOfflineState(true);
 }
 
-void Player::ProhibitSpellSchool(SpellSchoolMask idSchoolMask, uint32 unTimeMs)
+void Player::LockSpellSchool(SpellSchoolMask idSchoolMask, uint32 unTimeMs)
 {
                                                             // last check 2.0.10
     WorldPacket data(SMSG_SPELL_COOLDOWN, 8+1+m_spells.size()*8);
@@ -18752,6 +18759,15 @@ void Player::LeaveBattleground(bool teleportToEntryPoint)
             GetCamera().ResetView(true);
         }
 
+        if(bg->isArena() && bg->isRated() && bg->GetStatus() != STATUS_WAIT_LEAVE) //if game has not end then make sure that personal raiting is decreased
+        {
+            //decrease private raiting here
+            Team Winner = GetTeam() == ALLIANCE ? HORDE : ALLIANCE;
+            Team Looser = GetTeam() == ALLIANCE ? ALLIANCE : HORDE;
+            ArenaTeam* WinnerTeam = sObjectMgr.GetArenaTeamById(bg->GetArenaTeamIdForTeam(Winner));
+            ArenaTeam* LooserTeam = sObjectMgr.GetArenaTeamById(bg->GetArenaTeamIdForTeam(Looser));
+            LooserTeam->MemberLost(this,WinnerTeam->GetStats().rating, 0);
+        }
         bg->RemovePlayerAtLeave(GetGUID(), teleportToEntryPoint, true);
 
         if (bg->isBattleGround() && sWorld.getConfig(CONFIG_BATTLEGROUND_CAST_DESERTER))
@@ -21048,6 +21064,7 @@ bool Player::isTotalImmunity()
     return false;
 }
 
+
 void Player::BuildTeleportAckMsg(WorldPacket& data, float x, float y, float z, float ang) const
 {
     MovementInfo mi = m_movementInfo;
@@ -21135,7 +21152,13 @@ void Player::Push()
 void Player::PushSixty()
 {
     GiveLevel(60);
-    learnSpell(33389); //riding skill of 75
+    
+    // Alliance
+    if (GetTeam() == ALLIANCE)
+        learnSpell(33391); //riding skill of 100
+    else
+        learnSpell(33389); //riding skill of 75
+    
     SaveToDB();
 }
 
@@ -21493,32 +21516,32 @@ void Player::EquipForPushSixty(uint16 items[])
 
     AddItem(22895, 20); //something to eat
     AddItem(30703, 20); //something to drink
-
+    
     switch (GetTeam())
     {
         case ALLIANCE:
         {
             switch (getRace())
             {
-                case RACE_HUMAN:
-                    if (!HasItemCount(2414, 1, true))
-                        AddItem(2414, 1);
+            case RACE_HUMAN:
+                if (!HasItemCount(18778, 1, true))  //Mount
+                    AddItem(18778, 1);
                     break;
-                case RACE_DWARF:
-                    if (!HasItemCount(5872, 1, true))
-                        AddItem(5872, 1);
+            case RACE_DWARF:
+                if (!HasItemCount(18787, 1, true))  //Mount
+                    AddItem(18787, 1);
                     break;
-                case RACE_NIGHTELF:
-                    if (!HasItemCount(8629, 1, true))
-                        AddItem(8629, 1);
+            case RACE_NIGHTELF:
+                if (!HasItemCount(18767, 1, true))  //Mount
+                    AddItem(18767, 1);
                     break;
-                case RACE_GNOME:
-                    if (!HasItemCount(13321, 1, true))
-                    AddItem(13321, 1);
+            case RACE_GNOME:
+                if (!HasItemCount(18772, 1, true))  //Mount
+                    AddItem(18772, 1);
                     break;
-                case RACE_DRAENEI:
-                    if (!HasItemCount(29743, 1, true))
-                        AddItem(29743, 1);
+            case RACE_DRAENEI:
+                if (!HasItemCount(29745, 1, true))  //Mount
+                    AddItem(29745, 1);
                     break;
             }
 
@@ -22106,24 +22129,24 @@ void Player::EnchantItem(uint32 spellid, uint8 slot)
 {
     Item* pItem = GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
 
-	if (spellid == 0)
-		return;
+    if (spellid == 0)
+        return;
 
     if (!pItem)
     {
         ChatHandler(GetSession()).PSendSysMessage("%s[VZ NPC]%s Dein Item konnte leider nicht verzaubert werden, da sich kein Item in dem angegebenen Slot befindet.",MSG_COLOR_MAGENTA,MSG_COLOR_WHITE);
         return;
     }
-	/*Special cases für die Schilde, die sind doof ._.*/
-	if(pItem->GetProto()->Class == 4 && pItem->GetProto()->SubClass == 6)
-		if (spellid == 44383 || spellid == 34009 || spellid == 27945 || spellid == 27947 || spellid == 27946 || spellid == 20016 || spellid == 11224 || spellid == 13464 || spellid == 23530){}
-		else
-		{
-			ChatHandler(GetSession()).PSendSysMessage("%s[VZ NPC]%s Dein Item konnte nicht verzaubert werden, da ein falsches item angelegt ist.",MSG_COLOR_MAGENTA,MSG_COLOR_WHITE);
-			return;
-		}
+    /*Special cases für die Schilde, die sind doof ._.*/
+    if(pItem->GetProto()->Class == 4 && pItem->GetProto()->SubClass == 6)
+        if (spellid == 44383 || spellid == 34009 || spellid == 27945 || spellid == 27947 || spellid == 27946 || spellid == 20016 || spellid == 11224 || spellid == 13464 || spellid == 23530){}
+        else
+        {
+            ChatHandler(GetSession()).PSendSysMessage("%s[VZ NPC]%s Dein Item konnte nicht verzaubert werden, da ein falsches item angelegt ist.",MSG_COLOR_MAGENTA,MSG_COLOR_WHITE);
+            return;
+        }
     if (pItem->GetEntry() == 33681 || pItem->GetEntry() == 33736 || pItem->GetEntry() == 34033)
-	    return;
+        return;
 
     SpellEntry const* spellInfo = sSpellStore.LookupEntry(spellid);
     if (!spellInfo)
@@ -22144,11 +22167,11 @@ void Player::EnchantItem(uint32 spellid, uint8 slot)
         ChatHandler(GetSession()).PSendSysMessage("%s[VZ NPC]%s Dein Item konnte nicht verzaubert werden, da ein falsches Item angelegt ist.",MSG_COLOR_MAGENTA,MSG_COLOR_WHITE);
         return;
     }
-	//Item *item, EnchantmentSlot slot, bool apply, bool apply_dur, bool ignore_condition
+    //Item *item, EnchantmentSlot slot, bool apply, bool apply_dur, bool ignore_condition
     ApplyEnchantment(pItem, PERM_ENCHANTMENT_SLOT, false);
     pItem->SetEnchantment(PERM_ENCHANTMENT_SLOT, enchantid, 0, 0);
     ApplyEnchantment(pItem, PERM_ENCHANTMENT_SLOT, true);
-	ChatHandler(GetSession()).PSendSysMessage("%s[VZ NPC]%s Dein Item wurde erfolgreich verzaubert!",MSG_COLOR_MAGENTA,MSG_COLOR_WHITE);
+    ChatHandler(GetSession()).PSendSysMessage("%s[VZ NPC]%s Dein Item wurde erfolgreich verzaubert!",MSG_COLOR_MAGENTA,MSG_COLOR_WHITE);
 }
 
 bool Player::isInSanctuary()
@@ -22477,3 +22500,179 @@ void Player::_SaveInstanceTimeRestrictions()
         stmt.PExecute(GetSession()->GetAccountId(), itr->first, itr->second);
     }
 }
+
+/* Addon Helper START */
+
+void Player::SendAddonMessage(std::string& text, char* prefix)
+{
+    std::string message;
+    message.append(prefix);
+    message.push_back(9);
+    message.append(text);
+
+    WorldPacket data(SMSG_MESSAGECHAT, 200);
+    data << uint8(CHAT_MSG_WHISPER);
+    data << uint32(LANG_ADDON);
+    data << uint64(0); // guid
+    data << uint32(LANG_ADDON);                               //language 2.1.0 ?
+    data << uint64(0); // guid
+    data << uint32(message.length() + 1);
+    data << message;
+    data << uint8(0);
+    BroadcastPacketInRange(&data, MAX_VISIBILITY_DISTANCE, false, false);
+}
+
+WorldPacket Player::CreateAddonMessage(std::string& text, char* prefix)
+{
+    std::string message;
+    message.append(prefix);
+    message.push_back(9);
+    message.append(text);
+
+    WorldPacket data(SMSG_MESSAGECHAT, 200);
+    data << uint8(CHAT_MSG_WHISPER);
+    data << uint32(LANG_ADDON);
+    data << uint64(0); // guid
+    data << uint32(LANG_ADDON);                               //language 2.1.0 ?
+    data << uint64(0); // guid
+    data << uint32(message.length() + 1);
+    data << message;
+    data << uint8(0);
+    return data;
+}
+
+char *GetClassString(uint8 _Class)
+{
+    switch (_Class)
+    {
+        case CLASS_WARRIOR: return "WARRIOR"; break;
+        case CLASS_PALADIN: return "PALADIN"; break;
+        case CLASS_HUNTER:  return "HUNTER";  break;
+        case CLASS_ROGUE:   return "ROGUE";   break;
+        case CLASS_PRIEST:  return "PRIEST";  break;
+        case CLASS_SHAMAN:  return "SHAMAN";  break;
+        case CLASS_MAGE:    return "MAGE";    break;
+        case CLASS_WARLOCK: return "WARLOCK"; break;
+        case CLASS_DRUID:   return "DRUID";   break;
+        default: return ""; break;
+    }
+}
+
+char *GetClassLocalString(uint8 _Class)
+{
+    switch (_Class)
+    {
+        case CLASS_WARRIOR: return "Warrior"; break;
+        case CLASS_PALADIN: return "Paladin"; break;
+        case CLASS_HUNTER:  return "Hunter";  break;
+        case CLASS_ROGUE:   return "Rogue";   break;
+        case CLASS_PRIEST:  return "Priest";  break;
+        case CLASS_SHAMAN:  return "Shaman";  break;
+        case CLASS_MAGE:    return "Mage";    break;
+        case CLASS_WARLOCK: return "Warlock"; break;
+        case CLASS_DRUID:   return "Druid";   break;
+        default: return ""; break;
+    }
+}
+
+char *GetRaceLocalString(uint8 _Race)
+{
+    switch (_Race)
+    {
+        case RACE_HUMAN:         return "Human";    break;
+        case RACE_ORC:           return "Orc";      break;
+        case RACE_DWARF:         return "Dwarf";    break;
+        case RACE_NIGHTELF:      return "Nightelf"; break;
+        case RACE_UNDEAD_PLAYER: return "Undead";   break;
+        case RACE_TAUREN:        return "Tauren";   break;
+        case RACE_GNOME:         return "Gnome";    break;
+        case RACE_TROLL:         return "Troll";    break;
+        case RACE_BLOODELF:      return "Bloodelf"; break;
+        case RACE_DRAENEI:       return "Draenei";  break;
+        default: return ""; break;
+    }
+}
+
+class GladdyUpdate
+{
+public:
+    std::string msg;
+
+    GladdyUpdate(Player *p)
+    {
+        msg = "";
+        msg.append(p->GetName());
+        msg.push_back(',');
+    }
+
+    void AppendGUID(uint64 unitGUID)
+    {
+        std::stringstream sstream;
+        sstream << "0x" << std::setfill('0') << std::setw(sizeof(uint64) * 2) << std::hex << std::uppercase << unitGUID;
+        msg.append(sstream.str());
+        msg.push_back(',');
+    }
+
+    void Append(uint32 data)
+    {
+        std::ostringstream os;
+        os << data;
+        msg.append(os.str());
+        msg.push_back(',');
+    }
+
+    void AppendChar(char* prefix)
+    {
+        msg.append(prefix);
+        msg.push_back(',');
+    }
+
+    void AppendLast(uint32 data)
+    {
+        std::ostringstream os;
+        os << data;
+        msg.append(os.str());
+    }
+};
+
+WorldPacket Player::BuildGladdyUpdate()
+{
+    Powers type = getPowerType();
+    int32 maxPower;
+    int32 currentPower;
+    if (type == POWER_RAGE)
+    {
+        currentPower = GetPower(type) / 10;
+        maxPower = GetMaxPower(type) / 10;
+    }
+    else
+    {
+        currentPower = GetPower(type);
+        maxPower = GetMaxPower(type);
+    }
+
+    GladdyUpdate update(this);
+    update.AppendGUID(GetGUID());
+    update.AppendChar(GetClassString(getClass())); // class
+    update.AppendChar(GetClassLocalString(getClass())); // locclass
+    update.AppendChar(GetRaceLocalString(getRace())); // locrace
+    update.AppendChar(""); // correct
+    update.Append(GetHealth());
+    update.Append(GetMaxHealth());
+    update.Append(currentPower);
+    update.Append(maxPower);
+    update.AppendLast(type);
+
+    return CreateAddonMessage(update.msg, "Gladdy");
+}
+
+void Player::SendGladdyNotification()
+{
+    std::stringstream sstream;
+    sstream << "0x" << std::setfill('0') << std::setw(sizeof(uint64) * 2) << std::hex << std::uppercase << GetGUID();
+    std::string result = sstream.str();
+
+    SendAddonMessage(result, "GladdyTrinketUsed");
+}
+
+/* Addon Helper FINISH */

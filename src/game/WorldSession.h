@@ -436,6 +436,7 @@ class LOOKING4GROUP_IMPORT_EXPORT WorldSession
 
         void HandleMovementOpcodes(WorldPacket& recvPacket);
         void HandleMoverRelocation(MovementInfo&);
+        void SynchronizeMovement(MovementInfo &movementInfo);
 
         void HandleSetActiveMoverOpcode(WorldPacket &recv_data);
         void HandleMoveNotActiveMoverOpcode(WorldPacket &recv_data);
@@ -715,6 +716,7 @@ class LOOKING4GROUP_IMPORT_EXPORT WorldSession
 
         void HandleAreaSpiritHealerQueryOpcode(WorldPacket& recv_data);
         void HandleAreaSpiritHealerQueueOpcode(WorldPacket& recv_data);
+        void AnnounceArenaStart(uint8 arenatype, uint32 arenaRating, std::string teamName);
         void HandleDismountOpcode(WorldPacket& recv_data);
         void HandleSelfResOpcode(WorldPacket& recv_data);
         void HandleReportSpamOpcode(WorldPacket& recv_data);
@@ -792,6 +794,8 @@ class LOOKING4GROUP_IMPORT_EXPORT WorldSession
 
         uint32 m_currentSessionTime;
         uint32 m_currentVerboseTime;
+        uint32 lastMoveTimeServer;
+        uint32 lastMoveTimeClient;
 };
 
 struct VerboseLogInfo

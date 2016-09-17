@@ -802,6 +802,15 @@ void Spell::EffectDummy(uint32 i)
                     m_caster->CastSpell(unitTarget, spell_list[urand(0, 5)], true);
                     return;
                 }
+                case 32785:                                 // Infernal Rain
+                {
+                    if (!unitTarget || unitTarget->GetTypeId() != TYPEID_UNIT /*|| unitTarget->GetEntry() != 19215*/)
+                        return;
+
+                    // Summon Infernal Siegebreaker
+                    m_caster->SummonCreature(18946, unitTarget->GetPositionX(), unitTarget->GetPositionY(), unitTarget->GetPositionZ(), 0.0f, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 60000);
+                    return;
+                }
                 case 46292:                                 // Cataclysm Breath
                 {
                     // Cataclysm Spells
@@ -924,6 +933,9 @@ void Spell::EffectDummy(uint32 i)
                 // Tag Subbued Talbuk (for Quest Creatures of the Eco-Domes - 10427)
                 case 35771:
                 {
+                    if (unitTarget->GetTypeId() == TYPEID_PLAYER)
+                        return;
+
                     if (((Player*)m_caster)->GetQuestStatus(10427) == QUEST_STATUS_INCOMPLETE)
                     {
                         // Get Sleep Visual (34664)
@@ -970,7 +982,7 @@ void Spell::EffectDummy(uint32 i)
                                 m_caster->DealDamage(unitTarget, unitTarget->GetMaxHealth(), DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, NULL, false);
                         }
                     }
-					return;
+                    return;
                 }
                 // SixDeamonBag
                 case 14537: 
@@ -1008,7 +1020,7 @@ void Spell::EffectDummy(uint32 i)
                          unitTarget = m_caster;
                     }
 
-					m_caster->CastSpell(unitTarget, spell_id, true, NULL);
+                    m_caster->CastSpell(unitTarget, spell_id, true, NULL);
                     return;
                 }
                 // Salvage Wreckage
@@ -3168,6 +3180,9 @@ void Spell::EffectSendEvent(uint32 EffectIndex)
             }
             break;
         }
+        // Summon Infernals
+        // TO-DO now the event is handled in stair_of_destiny.cpp
+        //case 33393: { break; }
         // Place Belmara's Tome
         case 34140:
         {
@@ -4895,8 +4910,9 @@ void Spell::EffectSummonPet(uint32 i)
             // pet in corpse state can't be summoned
             if (OldSummon->isDead())
                 return;
-
-            OldSummon->GetMap()->Remove((Creature*)OldSummon,false);
+            // if warlock allow summoning pet with same pet active
+            if (owner->getClass() != CLASS_WARLOCK)
+                OldSummon->GetMap()->Remove((Creature*)OldSummon,false);
             OldSummon->SetMapId(owner->GetMapId());
 
             float px, py, pz;
@@ -5178,6 +5194,19 @@ void Spell::SpellDamageWeaponDmg(uint32 i)
                 spell_bonus += int32(0.20f*m_caster->SpellBaseDamageBonus(SpellMgr::GetSpellSchoolMask(GetSpellInfo())));
                 spell_bonus += int32(0.20f*m_caster->SpellBaseDamageBonusForVictim(SpellMgr::GetSpellSchoolMask(GetSpellInfo()), unitTarget));
             }
+            // Crusader Strike +40% damage if Seal of the Crusader Active
+            if (m_spellInfo->SpellFamilyFlags & 0x0000800000000000LL)
+            {
+                Unit::AuraMap const& auras = m_caster->GetAuras();
+                for (Unit::AuraMap::const_iterator itr = auras.begin(); itr != auras.end(); ++itr)
+                {
+                    if (itr->second->GetSpellProto()->SpellFamilyFlags & 0x0000000000000200LL)
+                    {
+                        totalDamagePercentMod *= 1.4f;
+                        break;
+                    }
+                }
+            }
             break;
         }
         case SPELLFAMILY_SHAMAN:
@@ -5388,7 +5417,7 @@ void Spell::EffectInterruptCast(uint32 i)
                 if (m_originalCaster)
                 {
                     int32 duration = m_originalCaster->CalculateSpellDuration(GetSpellInfo(), i, unitTarget);
-                    unitTarget->ProhibitSpellSchool(SpellMgr::GetSpellSchoolMask(curSpellInfo), duration /* GetSpellDuration(GetSpellInfo())? */);
+                    unitTarget->LockSpellSchool(SpellMgr::GetSpellSchoolMask(curSpellInfo), duration /* GetSpellDuration(GetSpellInfo())? */);
                 }
                 // has to be sent before InterruptSpell call
                 WorldPacket data(SMSG_SPELLLOGEXECUTE, (8+4+4+4+4+8+4));
@@ -5752,7 +5781,7 @@ void Spell::EffectScriptEffect(uint32 effIndex)
             if (!m_caster->CanHaveThreatList())
                 return;
 
-            m_caster->getThreatManager().addThreat(unitTarget, -12000.0f);
+            m_caster->getThreatManager().modifyThreatPercent(unitTarget, -25.0f);
             break;
         }
         // Incite Chaos

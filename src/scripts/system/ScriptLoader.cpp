@@ -306,6 +306,7 @@ extern void AddSC_boss_vazruden_the_herald();
 //Hellfire Peninsula
 extern void AddSC_boss_doomlordkazzak();
 extern void AddSC_hellfire_peninsula();
+extern void AddSC_stair_of_destiny();
 
 //Hillsbrad Foothills
 //Hinterlands
@@ -412,6 +413,7 @@ extern void AddSC_boss_amnennar_the_coldbringer();
 extern void AddSC_razorfen_kraul();
 
 //Redridge Mountains
+extern void AddSC_redridge_mountains();
 //Ruins of Ahn'Qiraj
 extern void AddSC_boss_ayamiss();
 extern void AddSC_larva();
@@ -933,6 +935,7 @@ void AddScripts()
     //Hellfire Peninsula
     AddSC_boss_doomlordkazzak();
     AddSC_hellfire_peninsula();
+    AddSC_stair_of_destiny();
 
     //Hillsbrad Foothills
     //Hinterlands
@@ -1039,6 +1042,7 @@ void AddScripts()
     AddSC_razorfen_kraul();
 
     //Redridge Mountains
+    AddSC_redridge_mountains();
     //Ruins of Ahn'Qiraj
     AddSC_boss_ayamiss();
     AddSC_larva();
