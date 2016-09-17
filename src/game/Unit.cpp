@@ -283,6 +283,8 @@ Unit::Unit() :
     m_extraAttacks = 0;
     m_canDualWield = false;
 
+    m_rootTimes = 0;
+
     m_state = 0;
     m_form = FORM_NONE;
     m_deathState = ALIVE;
@@ -13356,13 +13358,25 @@ void Unit::SetFeared(bool apply, Unit* target, uint32 time)
 {
     if (apply)
     {
-        SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_FLEEING);
-        GetMotionMaster()->MoveFleeing(target, time);
+        SetUInt64Value(UNIT_FIELD_TARGET, 0);
+
+        Unit *caster = NULL;
+        Unit::AuraList const& fearAuras = GetAurasByType(SPELL_AURA_MOD_FEAR);
+        if (!fearAuras.empty())
+            caster = GetUnit(*this, fearAuras.front()->GetCasterGUID());
+        if (!caster)
+            caster = getAttackerForHelper();
+        GetMotionMaster()->MoveFleeing(caster, fearAuras.empty() ? sWorld.getConfig(CONFIG_CREATURE_FAMILY_FLEE_DELAY) : 0);             // caster == NULL processed in MoveFleeing
     }
     else
     {
-        RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_FLEEING);
-        GetUnitStateMgr().DropAction(UNIT_ACTION_FEARED);
+        if (isAlive())
+        {
+            if (GetMotionMaster()->GetCurrentMovementGeneratorType() == FLEEING_MOTION_TYPE)
+                GetMotionMaster()->MovementExpired();
+            if (getVictim())
+                SetUInt64Value(UNIT_FIELD_TARGET, getVictim()->GetGUID());
+        }
     }
 
     if (GetTypeId() == TYPEID_PLAYER)
@@ -13372,14 +13386,11 @@ void Unit::SetFeared(bool apply, Unit* target, uint32 time)
 void Unit::SetConfused(bool apply)
 {
     if (apply)
-    {
-        SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_CONFUSED);
         GetMotionMaster()->MoveConfused();
-    }
     else
     {
-        RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_CONFUSED);
-        GetUnitStateMgr().DropAction(UNIT_ACTION_CONFUSED);
+        if (isAlive() && GetMotionMaster()->GetCurrentMovementGeneratorType() == CONFUSED_MOTION_TYPE)
+            GetMotionMaster()->MovementExpired();
     }
 
     if (GetTypeId() == TYPEID_PLAYER)
@@ -13389,17 +13400,79 @@ void Unit::SetConfused(bool apply)
 void Unit::SetStunned(bool apply)
 {
     if (apply)
-        GetUnitStateMgr().PushAction(UNIT_ACTION_STUN);
+    {
+        SetUInt64Value(UNIT_FIELD_TARGET, 0);
+        SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_DISABLE_ROTATE);
+        CastStop();
+
+        // Creature specific
+        if (GetTypeId() != TYPEID_PLAYER)
+            ToCreature()->StopMoving();
+        else
+            SetStandState(UNIT_STAND_STATE_STAND);
+
+        WorldPacket data(SMSG_FORCE_MOVE_ROOT, 8);
+        data << GetPackGUID();
+        data << uint32(0);
+        BroadcastPacket(&data, true);
+
+        CastStop();
+    }
     else
-        GetUnitStateMgr().DropAction(UNIT_ACTION_STUN);
+    {
+        if (isAlive() && getVictim())
+            SetUInt64Value(UNIT_FIELD_TARGET, getVictim()->GetGUID());
+
+        // don't remove UNIT_FLAG_STUNNED for pet when owner is mounted (disabled pet's interface)
+        Unit *pOwner = GetOwner();
+        if (!pOwner || (pOwner->GetTypeId() == TYPEID_PLAYER && !pOwner->ToPlayer()->IsMounted()))
+            RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_DISABLE_ROTATE);
+
+        if (!hasUnitState(UNIT_STAT_ROOT))         // prevent allow move if have also root effect
+        {
+            WorldPacket data(SMSG_FORCE_MOVE_UNROOT, 8+4);
+            data << GetPackGUID();
+            data << uint32(0);
+            BroadcastPacket(&data, true);
+        }
+    }
 }
 
 void Unit::SetRooted(bool apply)
 {
+    uint32 apply_stat = UNIT_STAT_ROOT;
     if (apply)
-        GetUnitStateMgr().PushAction(UNIT_ACTION_ROOT);
+    {
+        if (m_rootTimes > 0) // blizzard internal check?
+            m_rootTimes++;
+
+        SetFlag(UNIT_FIELD_FLAGS, (apply_stat<<16)); // probably wrong
+
+        if (GetTypeId() == TYPEID_PLAYER)
+        {
+            WorldPacket data(SMSG_FORCE_MOVE_ROOT, 10);
+            data << GetPackGUID();
+            data << m_rootTimes;
+            BroadcastPacket(&data, true);
+        }
+        else
+            ToCreature()->StopMoving();
+    }
     else
-        GetUnitStateMgr().DropAction(UNIT_ACTION_ROOT);
+    {
+        RemoveFlag(UNIT_FIELD_FLAGS, (apply_stat<<16)); // probably wrong
+
+        if (!hasUnitState(UNIT_STAT_STUNNED))      // prevent allow move if have also stun effect
+        {
+            if (GetTypeId() == TYPEID_PLAYER)
+            {
+                WorldPacket data(SMSG_FORCE_MOVE_UNROOT, 10);
+                data << GetPackGUID();
+                data << ++m_rootTimes;
+                BroadcastPacket(&data, true);
+            }
+        }
+    }
 }
 
 bool Unit::isInSanctuary()
