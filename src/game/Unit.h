@@ -1556,6 +1556,8 @@ class LOOKING4GROUP_IMPORT_EXPORT Unit : public WorldObject
         void SetStunned(bool apply);
         void SetRooted(bool apply);
 
+        uint32 m_rootTimes;
+
         bool IsStopped() const;
 
         virtual bool SetPosition(float x, float y, float z, float ang, bool teleport = false);
